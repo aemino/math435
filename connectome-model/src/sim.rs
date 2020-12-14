@@ -1,9 +1,9 @@
 use std::{cmp::Reverse, collections::BinaryHeap};
 
+use crate::simplex::SimplicialComplex;
 use nalgebra::{distance_squared, Point3};
 use petgraph::{graph::DiGraph, visit::EdgeRef, EdgeDirection};
 use rand::Rng;
-
 pub struct NodeWeight {
     pub position: Point3<f64>,
     pub last_active: usize,
