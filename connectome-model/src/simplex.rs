@@ -59,6 +59,8 @@ impl SimplicialComplex {
         if self.simplices.len() < simplex.len() - 1 {
             self.simplices.push(HashMap::new());
             self.simplex_indices.push(BiHashMap::new());
+            self.boundary_matrices
+                .push(GenericMatrix::from_iterator(1, 1, vec![0u64]));
         }
         if simplex.len() == 2 {
             if self.simplices[0]
@@ -76,7 +78,8 @@ impl SimplicialComplex {
                 .or_insert(HashSet::new())
                 .insert(simplex[i]);
             if simplex.len() > 2 {
-                let index = self.simplex_indices[simplex.len() - 3].len();
+                // Add one to the index because of the dummy element in the matrix to allow for the addition of rows and columns.
+                let index = self.simplex_indices[simplex.len() - 3].len() + 1;
 
                 if !self.simplex_indices[simplex.len() - 3].contains_right(&face) {
                     column_indices.push(index);
@@ -124,24 +127,23 @@ impl SimplicialComplex {
                 super_simplex.push(n);
             }
             if super_simplex.len() == 3 {
-                if ((&self.simplices[1]).contains_key(&vec![super_simplex[0], super_simplex[1]])
-                    && (&self.simplices[1]).contains_key(&vec![super_simplex[1], super_simplex[2]])
-                    && (&self.simplices[1]).contains_key(&vec![super_simplex[2], super_simplex[0]]))
-                    || ((&self.simplices[1])
-                        .contains_key(&vec![super_simplex[1], super_simplex[0]])
-                        && (&self.simplices[1])
-                            .contains_key(&vec![super_simplex[2], super_simplex[1]])
-                        && (&self.simplices[1])
-                            .contains_key(&vec![super_simplex[0], super_simplex[2]]))
+                let edge_map = &self.simplices[1];
+                if (edge_map.contains_key(&vec![super_simplex[0], super_simplex[1]])
+                    && edge_map.contains_key(&vec![super_simplex[1], super_simplex[2]])
+                    && edge_map.contains_key(&vec![super_simplex[2], super_simplex[0]]))
+                    || (edge_map.contains_key(&vec![super_simplex[1], super_simplex[0]])
+                        && edge_map.contains_key(&vec![super_simplex[2], super_simplex[1]])
+                        && edge_map.contains_key(&vec![super_simplex[0], super_simplex[2]]))
                 {
                     continue;
                 }
             }
             self.update(super_simplex);
         }
-
+        // if there is nothing above it, so it won't be added backwards.
         if options.len() == 0 {
-            let index = self.simplex_indices[simplex.len() - 2].len();
+            // Add one to the index because of the dummy element in the matrix to allow for the addition of rows and columns.
+            let index = self.simplex_indices[simplex.len() - 2].len() + 1;
             self.simplex_indices[simplex.len() - 2].insert(index, simplex.clone());
             self.simplices[simplex.len() - 2].insert(simplex, HashSet::new());
         }
