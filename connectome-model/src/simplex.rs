@@ -44,48 +44,11 @@ impl SimplicialComplex {
         }
     }
 
-    pub fn rank(mat: &GenericMatrix) -> usize {
-        let mut mat_dup = mat.clone();
-        let mut mat_rank = 0;
-        for x in 0..mat_dup.ncols() {
-            for i in x..mat_dup.nrows() {
-                for j in 0..mat_dup.ncols() {
-                    if mat_dup[(i, j)] == 1 {
-                        mat_dup.swap_rows(x, i);
-                        mat_dup.swap_columns(x, j);
-                    }
-                }
-            }
-
-            if mat_dup[(x, x)] == 0 {
-                return mat_rank;
-            }
-
-            for i in x + 1..mat_dup.nrows() {
-                if mat_dup[(i, x)] == 1 {
-                    for j in 0..mat_dup.ncols() {
-                        mat_dup[(i, j)] = (mat_dup[(i, j)] + mat_dup[(x, j)]) % 2;
-                    }
-                }
-            }
-
-            for i in x + 1..mat_dup.nrows() {
-                if mat_dup[(i, x)] == 1 {
-                    for j in 0..mat_dup.ncols() {
-                        mat_dup[(i, j)] = (mat_dup[(i, j)] + mat_dup[(i, x)]) % 2;
-                    }
-                }
-            }
-
-            mat_rank += 1
-        }
-        mat_rank
-    }
     /// Return betti numbers, 1 and onward.
     pub fn betti_numbers(&self) -> Vec<usize> {
         let mut betti_numbers: Vec<usize> = vec![0];
         for (i, matrix) in self.boundary_matrices.iter().enumerate() {
-            betti_numbers.push(matrix.ncols() - SimplicialComplex::rank(matrix));
+            betti_numbers.push(matrix.ncols() - rank(matrix));
             betti_numbers[i] += betti_numbers[i + 1] - matrix.ncols();
         }
         betti_numbers.remove(0);
@@ -183,4 +146,77 @@ impl SimplicialComplex {
             self.simplices[simplex.len() - 2].insert(simplex, HashSet::new());
         }
     }
+
+    pub fn delete(&mut self, simplex: Vec<usize>) {
+        if simplex.len() == 2 {
+            self.simplices[simplex.len() - 1]
+                .get_mut(&vec![simplex[0]])
+                .unwrap()
+                .remove(&simplex[1]);
+            self.simplices[simplex.len() - 1]
+                .get_mut(&vec![simplex[1]])
+                .unwrap()
+                .remove(&simplex[0]);
+        }
+        let &simplex_row = self.simplex_indices[simplex.len() - 2]
+            .get_by_right(&simplex)
+            .unwrap();
+        let super_simplex_indices: Vec<usize> = self.boundary_matrices[simplex.len() - 2]
+            .row(simplex_row)
+            .iter()
+            .enumerate()
+            .filter_map(|(i, &e)| if e == 1 { Some(i) } else { None })
+            .collect();
+        self.boundary_matrices[simplex.len() - 2] = self.boundary_matrices[simplex.len() - 2]
+            .clone()
+            .remove_row(simplex_row)
+            .remove_columns_at(&super_simplex_indices);
+        for i in super_simplex_indices {
+            let super_simplex = self.simplex_indices[simplex.len() - 1]
+                .get_by_left(&i)
+                .unwrap()
+                .clone();
+            self.delete(super_simplex.clone());
+            self.simplices[simplex.len() - 1].remove_entry(&super_simplex);
+        }
+    }
+}
+
+/// Get rank of matrix with finite field of order 2.
+pub fn rank(mat: &GenericMatrix) -> usize {
+    let mut mat_dup = mat.clone();
+    let mut mat_rank = 0;
+    for x in 0..mat_dup.ncols() {
+        for i in x..mat_dup.nrows() {
+            for j in 0..mat_dup.ncols() {
+                if mat_dup[(i, j)] == 1 {
+                    mat_dup.swap_rows(x, i);
+                    mat_dup.swap_columns(x, j);
+                }
+            }
+        }
+
+        if mat_dup[(x, x)] == 0 {
+            return mat_rank;
+        }
+
+        for i in x + 1..mat_dup.nrows() {
+            if mat_dup[(i, x)] == 1 {
+                for j in 0..mat_dup.ncols() {
+                    mat_dup[(i, j)] = (mat_dup[(i, j)] + mat_dup[(x, j)]) % 2;
+                }
+            }
+        }
+
+        for i in x + 1..mat_dup.nrows() {
+            if mat_dup[(i, x)] == 1 {
+                for j in 0..mat_dup.ncols() {
+                    mat_dup[(i, j)] = (mat_dup[(i, j)] + mat_dup[(i, x)]) % 2;
+                }
+            }
+        }
+
+        mat_rank += 1
+    }
+    mat_rank
 }
