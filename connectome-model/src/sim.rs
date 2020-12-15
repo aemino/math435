@@ -6,16 +6,19 @@ use rand::Rng;
 
 pub struct NodeWeight {
     pub position: Point3<f64>,
-    pub last_active: usize,
+    pub last_active: Option<usize>,
 }
 
 impl NodeWeight {
     pub fn is_active(&self, timestep: usize) -> bool {
-        timestep == self.last_active
+        match self.last_active {
+            Some(last_active) => last_active == timestep,
+            None => false,
+        }
     }
 
     pub fn set_active(&mut self, timestep: usize) {
-        self.last_active = timestep;
+        self.last_active = Some(timestep);
     }
 }
 
@@ -25,6 +28,12 @@ pub struct EdgeWeight {
     pub activation_queue: BinaryHeap<Reverse<usize>>,
 }
 
+impl EdgeWeight {
+    pub fn myelination_prob(&self, max: usize) -> f64 {
+        (max - self.myelination) as f64 / (max + self.myelination) as f64
+    }
+}
+
 pub struct StepResult {
     pub added_edges: Vec<(usize, usize)>,
     pub removed_edges: Vec<(usize, usize)>,
@@ -32,7 +41,9 @@ pub struct StepResult {
 
 pub struct Simulation<R: Rng> {
     pub timestep: usize,
-    pub temperature: f64,
+    pub connectivity_rate: f64,
+    pub myelination_rate: f64,
+    pub decay_rate: f64,
     pub max_myelination: usize,
     pub graph: DiGraph<NodeWeight, EdgeWeight>,
     pub rng: R,
@@ -42,10 +53,18 @@ impl<R> Simulation<R>
 where
     R: Rng,
 {
-    pub fn new(temperature: f64, max_myelination: usize, rng: R) -> Self {
+    pub fn new(
+        connectivity_rate: f64,
+        myelination_rate: f64,
+        decay_rate: f64,
+        max_myelination: usize,
+        rng: R,
+    ) -> Self {
         Self {
             timestep: Default::default(),
-            temperature,
+            connectivity_rate,
+            myelination_rate,
+            decay_rate,
             max_myelination,
             graph: DiGraph::new(),
             rng,
@@ -69,7 +88,7 @@ where
 
                     self.graph.add_node(NodeWeight {
                         position: Point3::new(x, y, z),
-                        last_active: self.timestep,
+                        last_active: None,
                     });
                 }
             }
@@ -80,10 +99,24 @@ where
     pub fn step(&mut self) -> StepResult {
         let next_timestep = self.timestep + 1;
 
+        let mut pending_removed_edges = Vec::new();
         let mut pending_activations = Vec::new();
 
         for id in self.graph.edge_indices() {
             let edge = &mut self.graph[id];
+
+            // Compute the myelination probability with the max + 1. This
+            // ensures that the probability doesn't reach zero, with the side
+            // effect of decreasing overall decay probability.
+            let decay_prob = edge.myelination_prob(self.max_myelination + 1) * self.decay_rate;
+
+            if self.rng.gen_bool(decay_prob) {
+                pending_removed_edges.push(self.graph.edge_endpoints(id).unwrap());
+
+                self.graph.remove_edge(id);
+
+                continue;
+            }
 
             if !edge
                 .activation_queue
@@ -100,7 +133,7 @@ where
             pending_activations.push(target_id);
         }
 
-        let mut pending_new_edges = Vec::new();
+        let mut pending_added_edges = Vec::new();
 
         for &target_id in &pending_activations {
             let target_node = &self.graph[target_id];
@@ -117,19 +150,22 @@ where
 
                 let source_node = &self.graph[source_id];
 
-                let delta_timestep = (next_timestep - source_node.last_active) as f64;
-                let distance = distance_squared(&target_node.position, &source_node.position);
-                let attachment_prob = self.temperature * (delta_timestep.exp() * distance).recip();
+                if let Some(last_active) = source_node.last_active {
+                    let delta_timestep = (next_timestep - last_active) as f64;
+                    let distance = distance_squared(&target_node.position, &source_node.position);
+                    let attachment_prob =
+                        self.connectivity_rate * (delta_timestep.exp() * distance).recip();
 
-                if self.rng.gen_bool(attachment_prob) {
-                    pending_new_edges.push((source_id, target_id));
+                    if self.rng.gen_bool(attachment_prob) {
+                        pending_added_edges.push((source_id, target_id));
+                    }
                 }
             }
         }
 
         self.timestep = next_timestep;
 
-        for (source_id, target_id) in &pending_new_edges {
+        for (source_id, target_id) in &pending_added_edges {
             self.graph
                 .add_edge(*source_id, *target_id, EdgeWeight::default());
         }
@@ -145,16 +181,32 @@ where
                 .collect::<Vec<_>>()
             {
                 let edge = &mut self.graph[edge_id];
-                edge.activation_queue.push(Reverse(self.timestep + 1));
+                edge.activation_queue.push(Reverse(
+                    self.timestep + 1 + (self.max_myelination - edge.myelination),
+                ));
+
+                if edge.myelination >= self.max_myelination {
+                    continue;
+                }
+
+                let myelination_prob =
+                    edge.myelination_prob(self.max_myelination) * self.myelination_rate;
+
+                if self.rng.gen_bool(myelination_prob) {
+                    edge.myelination += 1;
+                }
             }
         }
 
         StepResult {
-            added_edges: pending_new_edges
+            added_edges: pending_added_edges
                 .iter()
                 .map(|(a, b)| (a.index(), b.index()))
                 .collect(),
-            removed_edges: vec![],
+            removed_edges: pending_removed_edges
+                .iter()
+                .map(|(a, b)| (a.index(), b.index()))
+                .collect(),
         }
     }
 }
