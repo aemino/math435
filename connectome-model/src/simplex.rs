@@ -12,23 +12,16 @@ pub struct SimplicialComplex {
 impl SimplicialComplex {
     pub fn new(vertices: Vec<usize>) -> Self {
         SimplicialComplex {
-            simplices: vec![vertices
-                .iter()
-                .map(|&v| (vec![v], HashSet::new()))
-                .collect()],
-            simplex_indices: vec![],
-            boundary_matrices: vec![],
+            simplices: vec![
+                vertices
+                    .iter()
+                    .map(|&v| (vec![v], HashSet::new()))
+                    .collect(),
+                HashMap::new(),
+            ],
+            simplex_indices: vec![BiHashMap::new()],
+            boundary_matrices: vec![GenericMatrix::from_iterator(1, 1, vec![0u64])],
         }
-    }
-
-    pub fn faces(simplex: &Vec<usize>) -> Vec<Vec<usize>> {
-        let mut faces: Vec<Vec<usize>> = Vec::new();
-        for i in 0..simplex.len() {
-            let mut sub_simplex: Vec<usize> = simplex[..i].iter().cloned().collect();
-            sub_simplex.extend(simplex[i + 1..].iter());
-            faces.push(sub_simplex);
-        }
-        faces
     }
 
     fn add_row(&mut self, mat_index: usize) {
@@ -45,18 +38,22 @@ impl SimplicialComplex {
     }
 
     /// Return betti numbers, 1 and onward.
-    pub fn betti_numbers(&self) -> Vec<usize> {
-        let mut betti_numbers: Vec<usize> = vec![0];
+    pub fn betti_numbers(&self) -> Vec<i64> {
+        let mut betti_numbers: Vec<i64> = vec![0];
         for (i, matrix) in self.boundary_matrices.iter().enumerate() {
-            betti_numbers.push(matrix.ncols() - rank(matrix));
-            betti_numbers[i] += betti_numbers[i + 1] - matrix.ncols();
+            let rank = rank(matrix);
+
+            betti_numbers.push(matrix.ncols() as i64 - 1 - rank as i64);
+            betti_numbers[i] -= rank as i64;
         }
         betti_numbers.remove(0);
+        betti_numbers.remove(betti_numbers.len() - 1);
+
         betti_numbers
     }
 
     pub fn update(&mut self, simplex: Vec<usize>) {
-        if self.simplices.len() < simplex.len() - 1 {
+        if self.simplices.len() < simplex.len() + 1 {
             self.simplices.push(HashMap::new());
             self.simplex_indices.push(BiHashMap::new());
             self.boundary_matrices
@@ -72,80 +69,81 @@ impl SimplicialComplex {
             }
         }
         let mut column_indices: Vec<usize> = Vec::new();
-        for (i, face) in SimplicialComplex::faces(&simplex).into_iter().enumerate() {
+
+        for (i, face) in faces(&simplex).into_iter().enumerate() {
             self.simplices[simplex.len() - 2]
                 .entry(face.clone())
                 .or_insert(HashSet::new())
                 .insert(simplex[i]);
-            if simplex.len() > 2 {
-                // Add one to the index because of the dummy element in the matrix to allow for the addition of rows and columns.
-                let index = self.simplex_indices[simplex.len() - 3].len() + 1;
+            // Add one to the index because of the dummy element in the matrix to allow for the addition of rows and columns.
+            let index = self.simplex_indices[simplex.len() - 2].len() + 1;
 
-                if !self.simplex_indices[simplex.len() - 3].contains_right(&face) {
-                    column_indices.push(index);
-                    self.simplex_indices[simplex.len() - 3].insert(index, face);
-                    self.add_row(simplex.len() - 3);
-                } else {
-                    column_indices.push(
-                        *self.simplex_indices[simplex.len() - 3]
-                            .get_by_right(&face)
-                            .unwrap(),
-                    );
-                }
+            if !self.simplex_indices[simplex.len() - 2].contains_right(&face) {
+                column_indices.push(index);
+                self.simplex_indices[simplex.len() - 2].insert(index, face);
+                self.add_row(simplex.len() - 2);
+            } else {
+                column_indices.push(
+                    *self.simplex_indices[simplex.len() - 2]
+                        .get_by_right(&face)
+                        .unwrap(),
+                );
             }
         }
-        if simplex.len() > 2 {
-            self.add_column(simplex.len() - 3, column_indices);
-        }
+        self.add_column(simplex.len() - 2, column_indices);
 
         let prefix_simplex: Vec<usize> = simplex[1..].iter().cloned().collect();
-        let suffix_simplex: Vec<usize> = simplex[..simplex.len() - 1].iter().cloned().collect();
 
-        // let simplex_2: Vec<usize> = simplex[..simplex.len() - 1].iter().cloned().collect();
         let empty = HashSet::new();
-        let options: HashSet<usize> = (&self.simplices[simplex.len() - 2])
-            .get(&prefix_simplex)
-            .unwrap_or(&empty)
-            .intersection(
-                (&self.simplices[simplex.len() - 2])
-                    .get(&suffix_simplex)
-                    .unwrap_or(&empty),
-            )
-            .into_iter()
-            .cloned()
-            .collect();
+        let mut options: HashSet<usize> = &empty
+            | (&self.simplices[simplex.len() - 2])
+                .get(&prefix_simplex)
+                .unwrap_or(&empty);
+        for (_, face) in faces(&simplex).into_iter().enumerate() {
+            options = &options
+                & (&self.simplices[simplex.len() - 2])
+                    .get(&face)
+                    .unwrap_or(&empty);
+        }
 
         for &node in &options {
+            assert!(!simplex.contains(&node));
             let mut super_simplex: Vec<usize> = Vec::new();
+            let mut pushed = false;
             for (i, &n) in simplex.iter().enumerate() {
                 if (&self.simplices[1]).contains_key(&vec![node, n]) {
                     super_simplex.push(node);
                     super_simplex.extend(simplex[i..].iter());
-
+                    pushed = true;
                     break;
                 }
                 super_simplex.push(n);
             }
-            if super_simplex.len() == 3 {
+            if !pushed {
+                super_simplex.push(node);
+            }
+            if simplex.len() == 2 {
                 let edge_map = &self.simplices[1];
-                if (edge_map.contains_key(&vec![super_simplex[0], super_simplex[1]])
-                    && edge_map.contains_key(&vec![super_simplex[1], super_simplex[2]])
-                    && edge_map.contains_key(&vec![super_simplex[2], super_simplex[0]]))
-                    || (edge_map.contains_key(&vec![super_simplex[1], super_simplex[0]])
-                        && edge_map.contains_key(&vec![super_simplex[2], super_simplex[1]])
-                        && edge_map.contains_key(&vec![super_simplex[0], super_simplex[2]]))
+                if edge_map.contains_key(&vec![simplex[1], node])
+                    && edge_map.contains_key(&vec![node, simplex[0]])
                 {
                     continue;
                 }
             }
+            // if let Some(_) = self.simplices[simplex.len()].get(&super_simplex) {
+            // } else {
             self.update(super_simplex);
+            // }
         }
         // if there is nothing above it, so it won't be added backwards.
         if options.len() == 0 {
             // Add one to the index because of the dummy element in the matrix to allow for the addition of rows and columns.
-            let index = self.simplex_indices[simplex.len() - 2].len() + 1;
-            self.simplex_indices[simplex.len() - 2].insert(index, simplex.clone());
-            self.simplices[simplex.len() - 2].insert(simplex, HashSet::new());
+            let index = self.simplex_indices[simplex.len() - 1].len() + 1;
+            if !self.simplex_indices[simplex.len() - 1].contains_right(&simplex) {
+                self.simplex_indices[simplex.len() - 1].insert(index, simplex.clone());
+                self.add_row(simplex.len() - 1);
+                self.simplices[simplex.len() - 1].insert(simplex.clone(), HashSet::new());
+            }
         }
     }
 
@@ -182,6 +180,16 @@ impl SimplicialComplex {
             self.simplices[simplex.len() - 1].remove_entry(&super_simplex);
         }
     }
+}
+
+pub fn faces(simplex: &Vec<usize>) -> Vec<Vec<usize>> {
+    let mut faces: Vec<Vec<usize>> = Vec::new();
+    for i in 0..simplex.len() {
+        let mut sub_simplex: Vec<usize> = simplex[..i].iter().cloned().collect();
+        sub_simplex.extend(simplex[i + 1..].iter());
+        faces.push(sub_simplex);
+    }
+    faces
 }
 
 /// Get rank of matrix with finite field of order 2.
