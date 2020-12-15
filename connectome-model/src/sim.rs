@@ -52,8 +52,28 @@ where
         }
     }
 
-    pub fn init(&mut self) {
-        todo!()
+    /// Initializes nodes in a uniform grid, spaced `dist` units apart in each
+    /// direction, with `n^3` total nodes.
+    pub fn init_uniform(&mut self, dist: u32, n: u32) {
+        let dist = dist as f64;
+        let min = (n - 1) as f64 * dist * 0.5;
+
+        for xs in 0..n {
+            let x = xs as f64 * dist - min;
+
+            for ys in 0..n {
+                let y = ys as f64 * dist - min;
+
+                for zs in 0..n {
+                    let z = zs as f64 * dist - min;
+
+                    self.graph.add_node(NodeWeight {
+                        position: Point3::new(x, y, z),
+                        last_active: self.timestep,
+                    });
+                }
+            }
+        }
     }
 
     /// Steps the simulation forward by a single timestep.
