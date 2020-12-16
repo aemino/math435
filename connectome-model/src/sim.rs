@@ -145,7 +145,7 @@ where
                 }
 
                 // An edge already exists between these nodes; don't bother trying to compute attachment.
-                if self.graph.edges_connecting(source_id, target_id).count() > 0 {
+                if self.graph.find_edge_undirected(source_id, target_id).is_some() {
                     continue;
                 }
 
