@@ -102,7 +102,7 @@ where
     pub fn step(&mut self, activations: &[usize]) -> StepResult {
         let next_timestep = self.timestep + 1;
 
-        let mut pending_removed_edges = Vec::new();
+        let mut pending_removed_edges = HashSet::new();
         let mut pending_activations = activations
             .iter()
             .map(|&id| NodeIndex::new(id))
@@ -117,7 +117,7 @@ where
             let decay_prob = edge.myelination_prob(self.max_myelination + 1) * self.decay_rate;
 
             if self.rng.gen_bool(decay_prob) {
-                pending_removed_edges.push(self.graph.edge_endpoints(id).unwrap());
+                pending_removed_edges.insert(self.graph.edge_endpoints(id).unwrap());
 
                 self.graph.remove_edge(id);
                 continue;
@@ -138,7 +138,7 @@ where
             pending_activations.insert(target_id);
         }
 
-        let mut pending_added_edges = Vec::new();
+        let mut pending_added_edges = HashSet::new();
 
         for &target_id in &pending_activations {
             let target_node = &self.graph[target_id];
@@ -153,6 +153,8 @@ where
                     .graph
                     .find_edge_undirected(source_id, target_id)
                     .is_some()
+                    || pending_added_edges.contains(&(source_id, target_id))
+                    || pending_added_edges.contains(&(target_id, source_id))
                 {
                     continue;
                 }
@@ -166,7 +168,7 @@ where
                         self.connectivity_rate * (delta_timestep.exp() * distance).recip();
 
                     if self.rng.gen_bool(attachment_prob) {
-                        pending_added_edges.push((source_id, target_id));
+                        pending_added_edges.insert((source_id, target_id));
                     }
                 }
             }
