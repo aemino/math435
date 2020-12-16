@@ -160,8 +160,10 @@ where
                     || pending_added_edges.contains(&(source_id, target_id))
                     || pending_added_edges.contains(&(target_id, source_id))
                 {
+                    
                     continue;
                 }
+
 
                 let source_node = &self.graph[source_id];
 
@@ -179,10 +181,11 @@ where
         }
 
         self.timestep = next_timestep;
-
         for (source_id, target_id) in &pending_added_edges {
             self.graph
                 .add_edge(*source_id, *target_id, EdgeWeight::default());
+
+
         }
 
         for &id in &pending_activations {

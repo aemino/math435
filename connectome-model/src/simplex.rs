@@ -59,6 +59,7 @@ impl SimplicialComplex {
                 .unwrap_or(&HashSet::new())
                 .contains(&simplex[1])
             {
+                
                 return;
             }
         }
@@ -101,7 +102,6 @@ impl SimplicialComplex {
         }
 
         for &node in &options {
-            assert!(!simplex.contains(&node));
             let mut super_simplex: Vec<usize> = Vec::new();
             let mut pushed = false;
             for (i, &n) in simplex.iter().enumerate() {
@@ -124,10 +124,8 @@ impl SimplicialComplex {
                     continue;
                 }
             }
-            // if let Some(_) = self.simplices[simplex.len()].get(&super_simplex) {
-            // } else {
+
             self.add(super_simplex);
-            // }
         }
         // if there is nothing above it, so it won't be added backwards.
         if options.len() == 0 {
@@ -138,6 +136,19 @@ impl SimplicialComplex {
                 self.add_row(simplex.len() - 1);
                 self.simplices[simplex.len() - 1].insert(simplex.clone(), HashSet::new());
             }
+        }
+    }
+    pub fn update_simplex_indices(&mut self, index: usize) {
+        let mut old_key = 0;
+        let mut indices: Vec<usize> = self.simplex_indices[index].left_values().into_iter().cloned().collect();
+        indices.sort();
+        for key in indices {
+            
+            if key !=old_key+1{
+                let new = self.simplex_indices[index].remove_by_left(&key).unwrap().1;
+                self.simplex_indices[index].insert(old_key+1, new);
+            }
+            old_key+=1
         }
     }
 
@@ -151,18 +162,32 @@ impl SimplicialComplex {
                 .get_mut(&vec![simplex[1]])
                 .unwrap()
                 .remove(&simplex[0]));
+            assert!(self.simplices[1].remove_entry(&simplex).is_some());
+
+            let &simplex_row = self.simplex_indices[0].get_by_right(&vec![simplex[0]]).unwrap();
+            let &simplex_2_row = self.simplex_indices[0].get_by_right(&vec![simplex[1]]).unwrap();
+            let mut super_simplex_indices: HashSet<usize> = self.boundary_matrices[0]
+                .row(simplex_row)
+                .iter()
+                .enumerate()
+                .filter_map(|(i, &e)| if e == 1 { Some(i) } else { None })
+                .collect();
+
+            super_simplex_indices = &super_simplex_indices & &self.boundary_matrices[0]
+                .row(simplex_2_row)
+                .iter()
+                .enumerate()
+                .filter_map(|(i, &e)| if e == 1 { Some(i) } else { None })
+                .collect();
+
+            self.boundary_matrices[0] = self.boundary_matrices[0]
+                .clone().remove_column(*super_simplex_indices.iter().next().unwrap());
+            
+            
         }
-        let mut simplex_row = 0;
-        if let Some(&simplex_ro) = self.simplex_indices[simplex.len() - 1].get_by_right(&simplex) {
-            simplex_row = simplex_ro;
-        } else {
-            println!(
-                "{:?} {:?}",
-                simplex,
-                self.simplex_indices[simplex.len() - 1].get_by_right(&vec![simplex[1], simplex[0]])
-            );
-            assert!(1 == 0);
-        }
+
+
+        let &simplex_row = self.simplex_indices[simplex.len() - 1].get_by_right(&simplex).unwrap();
         let super_simplex_indices: Vec<usize> = self.boundary_matrices[simplex.len() - 1]
             .row(simplex_row)
             .iter()
@@ -170,8 +195,10 @@ impl SimplicialComplex {
             .filter_map(|(i, &e)| if e == 1 { Some(i) } else { None })
             .collect();
         self.boundary_matrices[simplex.len() - 1] = self.boundary_matrices[simplex.len() - 1]
-            .clone()
+            .clone().remove_row(simplex_row)
             .remove_columns_at(&super_simplex_indices);
+        assert!(self.simplex_indices[simplex.len() - 1].remove_by_right(&simplex).is_some());
+        self.update_simplex_indices(simplex.len() - 1);
         for i in super_simplex_indices {
             let super_simplex = self.simplex_indices[simplex.len()]
                 .get_by_left(&i)
