@@ -99,6 +99,7 @@ where
     pub fn step(&mut self, activations: &[usize]) -> StepResult {
         let next_timestep = self.timestep + 1;
 
+        let mut pending_removed_edge_ids = HashSet::new();
         let mut pending_removed_edges = Vec::new();
         let mut pending_activations = activations.iter().map(|&id| NodeIndex::new(id)).collect::<HashSet<_>>();
 
@@ -111,10 +112,8 @@ where
             let decay_prob = edge.myelination_prob(self.max_myelination + 1) * self.decay_rate;
 
             if self.rng.gen_bool(decay_prob) {
+                pending_removed_edge_ids.insert(id);
                 pending_removed_edges.push(self.graph.edge_endpoints(id).unwrap());
-
-                self.graph.remove_edge(id);
-
                 continue;
             }
 
@@ -132,6 +131,8 @@ where
             let (_, target_id) = self.graph.edge_endpoints(id).unwrap();
             pending_activations.insert(target_id);
         }
+
+        self.graph.retain_edges(|_, id| pending_removed_edge_ids.contains(&id));
 
         let mut pending_added_edges = Vec::new();
 
