@@ -1,6 +1,6 @@
 use std::collections::{BinaryHeap, HashSet};
 
-use nalgebra::{distance, distance_squared, Point3};
+use nalgebra::{distance, Point3};
 use petgraph::{graph::NodeIndex, stable_graph::StableDiGraph, visit::EdgeRef, EdgeDirection};
 use rand::Rng;
 
@@ -189,7 +189,7 @@ where
 
                 if let Some(last_active) = source_node.last_active {
                     let delta_timestep = (next_timestep - last_active) as f64;
-                    let distance = distance(&target_node.position, &source_node.position).powi(4);
+                    let distance = distance(&target_node.position, &source_node.position).powi(self.distance_exp);
                     let attachment_prob =
                         self.connectivity_rate * (delta_timestep.exp() * distance).recip();
 
