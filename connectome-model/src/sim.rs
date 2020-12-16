@@ -1,7 +1,7 @@
 use std::{cmp::Reverse, collections::BinaryHeap};
 
 use nalgebra::{distance_squared, Point3};
-use petgraph::{graph::DiGraph, visit::EdgeRef, EdgeDirection};
+use petgraph::{EdgeDirection, graph::{DiGraph, NodeIndex}, visit::EdgeRef};
 use rand::Rng;
 
 pub struct NodeWeight {
@@ -96,11 +96,11 @@ where
     }
 
     /// Steps the simulation forward by a single timestep.
-    pub fn step(&mut self) -> StepResult {
+    pub fn step(&mut self, activations: &[usize]) -> StepResult {
         let next_timestep = self.timestep + 1;
 
         let mut pending_removed_edges = Vec::new();
-        let mut pending_activations = Vec::new();
+        let mut pending_activations = activations.iter().map(|&id| NodeIndex::new(id)).collect::<Vec<_>>();
 
         for id in self.graph.edge_indices() {
             let edge = &mut self.graph[id];
