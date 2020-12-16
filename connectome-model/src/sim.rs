@@ -1,9 +1,6 @@
-use std::{
-    cmp::Reverse,
-    collections::{BinaryHeap, HashSet},
-};
+use std::collections::{BinaryHeap, HashSet};
 
-use nalgebra::{distance_squared, Point3};
+use nalgebra::{distance, distance_squared, Point3};
 use petgraph::{graph::NodeIndex, stable_graph::StableDiGraph, visit::EdgeRef, EdgeDirection};
 use rand::Rng;
 
@@ -25,10 +22,28 @@ impl NodeWeight {
     }
 }
 
+#[derive(PartialEq, Eq)]
+pub struct Activation {
+    pub at: usize,
+    pub queued_at: usize,
+}
+
+impl std::cmp::Ord for Activation {
+    fn cmp(&self, other: &Self) -> std::cmp::Ordering {
+        self.at.cmp(&other.at).reverse()
+    }
+}
+
+impl std::cmp::PartialOrd for Activation {
+    fn partial_cmp(&self, other: &Self) -> Option<std::cmp::Ordering> {
+        Some(self.cmp(other))
+    }
+}
+
 #[derive(Default)]
 pub struct EdgeWeight {
     pub myelination: usize,
-    pub activation_queue: BinaryHeap<Reverse<usize>>,
+    pub activation_queue: BinaryHeap<Activation>,
 }
 
 impl EdgeWeight {
@@ -48,6 +63,7 @@ pub struct Simulation<R: Rng> {
     pub myelination_rate: f64,
     pub decay_rate: f64,
     pub max_myelination: usize,
+    pub distance_exp: i32,
     pub graph: StableDiGraph<NodeWeight, EdgeWeight>,
     pub rng: R,
 }
@@ -61,6 +77,7 @@ where
         myelination_rate: f64,
         decay_rate: f64,
         max_myelination: usize,
+        distance_exp: i32,
         rng: R,
     ) -> Self {
         Self {
@@ -69,6 +86,7 @@ where
             myelination_rate,
             decay_rate,
             max_myelination,
+            distance_exp,
             graph: StableDiGraph::new(),
             rng,
         }
@@ -127,16 +145,20 @@ where
                 edge.myelination -= 1;
             }
 
-            if !edge
+            let mut should_activate = false;
+
+            while edge
                 .activation_queue
                 .peek()
-                .map_or(false, |t| t.0 == next_timestep)
+                .map_or(false, |activation| activation.at <= next_timestep)
             {
-                // The outgoing node is not scheduled to be activated in the next timestep.
-                continue;
+                edge.activation_queue.pop();
+                should_activate = true;
             }
 
-            edge.activation_queue.pop();
+            if !should_activate {
+                continue;
+            }
 
             let (_, target_id) = self.graph.edge_endpoints(id).unwrap();
             pending_activations.insert(target_id);
@@ -160,16 +182,14 @@ where
                     || pending_added_edges.contains(&(source_id, target_id))
                     || pending_added_edges.contains(&(target_id, source_id))
                 {
-                    
                     continue;
                 }
-
 
                 let source_node = &self.graph[source_id];
 
                 if let Some(last_active) = source_node.last_active {
                     let delta_timestep = (next_timestep - last_active) as f64;
-                    let distance = distance_squared(&target_node.position, &source_node.position);
+                    let distance = distance(&target_node.position, &source_node.position).powi(4);
                     let attachment_prob =
                         self.connectivity_rate * (delta_timestep.exp() * distance).recip();
 
@@ -181,11 +201,10 @@ where
         }
 
         self.timestep = next_timestep;
+
         for (source_id, target_id) in &pending_added_edges {
             self.graph
                 .add_edge(*source_id, *target_id, EdgeWeight::default());
-
-
         }
 
         for &id in &pending_activations {
@@ -199,9 +218,10 @@ where
                 .collect::<Vec<_>>()
             {
                 let edge = &mut self.graph[edge_id];
-                edge.activation_queue.push(Reverse(
-                    self.timestep + 1 + (self.max_myelination - edge.myelination),
-                ));
+                edge.activation_queue.push(Activation {
+                    at: self.timestep + 1 + (self.max_myelination - edge.myelination),
+                    queued_at: self.timestep,
+                });
 
                 if edge.myelination >= self.max_myelination {
                     continue;
