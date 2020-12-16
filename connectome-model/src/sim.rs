@@ -117,14 +117,14 @@ where
             let decay_prob = edge.myelination_prob(self.max_myelination + 1) * self.decay_rate;
 
             if self.rng.gen_bool(decay_prob) {
-                edge.myelination = edge.myelination.saturating_sub(1);
-
                 if edge.myelination == 0 {
                     pending_removed_edges.insert(self.graph.edge_endpoints(id).unwrap());
 
                     self.graph.remove_edge(id);
                     continue;
                 }
+
+                edge.myelination -= 1;
             }
 
             if !edge
