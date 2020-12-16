@@ -1,7 +1,10 @@
-use std::{cmp::Reverse, collections::{BinaryHeap, HashSet}};
+use std::{
+    cmp::Reverse,
+    collections::{BinaryHeap, HashSet},
+};
 
 use nalgebra::{distance_squared, Point3};
-use petgraph::{EdgeDirection, graph::{DiGraph, NodeIndex}, visit::EdgeRef};
+use petgraph::{graph::NodeIndex, stable_graph::StableDiGraph, visit::EdgeRef, EdgeDirection};
 use rand::Rng;
 
 pub struct NodeWeight {
@@ -35,8 +38,8 @@ impl EdgeWeight {
 }
 
 pub struct StepResult {
-    pub added_edges: Vec<(usize, usize)>,
     pub removed_edges: Vec<(usize, usize)>,
+    pub added_edges: Vec<(usize, usize)>,
 }
 
 pub struct Simulation<R: Rng> {
@@ -45,7 +48,7 @@ pub struct Simulation<R: Rng> {
     pub myelination_rate: f64,
     pub decay_rate: f64,
     pub max_myelination: usize,
-    pub graph: DiGraph<NodeWeight, EdgeWeight>,
+    pub graph: StableDiGraph<NodeWeight, EdgeWeight>,
     pub rng: R,
 }
 
@@ -66,7 +69,7 @@ where
             myelination_rate,
             decay_rate,
             max_myelination,
-            graph: DiGraph::new(),
+            graph: StableDiGraph::new(),
             rng,
         }
     }
@@ -99,11 +102,13 @@ where
     pub fn step(&mut self, activations: &[usize]) -> StepResult {
         let next_timestep = self.timestep + 1;
 
-        let mut pending_removed_edge_ids = HashSet::new();
         let mut pending_removed_edges = Vec::new();
-        let mut pending_activations = activations.iter().map(|&id| NodeIndex::new(id)).collect::<HashSet<_>>();
+        let mut pending_activations = activations
+            .iter()
+            .map(|&id| NodeIndex::new(id))
+            .collect::<HashSet<_>>();
 
-        for id in self.graph.edge_indices() {
+        for id in self.graph.edge_indices().collect::<Vec<_>>() {
             let edge = &mut self.graph[id];
 
             // Compute the myelination probability with the max + 1. This
@@ -112,7 +117,8 @@ where
             let decay_prob = edge.myelination_prob(self.max_myelination + 1) * self.decay_rate;
 
             if self.rng.gen_bool(decay_prob) {
-                pending_removed_edge_ids.insert(id);
+                self.graph.remove_edge(id);
+
                 pending_removed_edges.push(self.graph.edge_endpoints(id).unwrap());
                 continue;
             }
@@ -132,8 +138,6 @@ where
             pending_activations.insert(target_id);
         }
 
-        self.graph.retain_edges(|_, id| pending_removed_edge_ids.contains(&id));
-
         let mut pending_added_edges = Vec::new();
 
         for &target_id in &pending_activations {
@@ -145,7 +149,11 @@ where
                 }
 
                 // An edge already exists between these nodes; don't bother trying to compute attachment.
-                if self.graph.find_edge_undirected(source_id, target_id).is_some() {
+                if self
+                    .graph
+                    .find_edge_undirected(source_id, target_id)
+                    .is_some()
+                {
                     continue;
                 }
 
@@ -200,11 +208,11 @@ where
         }
 
         StepResult {
-            added_edges: pending_added_edges
+            removed_edges: pending_removed_edges
                 .iter()
                 .map(|(a, b)| (a.index(), b.index()))
                 .collect(),
-            removed_edges: pending_removed_edges
+            added_edges: pending_added_edges
                 .iter()
                 .map(|(a, b)| (a.index(), b.index()))
                 .collect(),
