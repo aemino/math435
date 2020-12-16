@@ -1,6 +1,8 @@
 use bimap::BiHashMap;
 use nalgebra::{Dynamic, Matrix, VecStorage};
 use std::collections::{HashMap, HashSet};
+use std::cmp::Ordering;
+
 
 type GenericMatrix = Matrix<u64, Dynamic, Dynamic, VecStorage<u64, Dynamic, Dynamic>>;
 pub struct SimplicialComplex {
@@ -47,6 +49,7 @@ impl SimplicialComplex {
     }
 
     pub fn add(&mut self, simplex: Vec<usize>) {
+        
         if self.simplices.len() < simplex.len() + 1 {
             self.simplices.push(HashMap::new());
             self.simplex_indices.push(BiHashMap::new());
@@ -59,10 +62,10 @@ impl SimplicialComplex {
                 .unwrap_or(&HashSet::new())
                 .contains(&simplex[1])
             {
-                
                 return;
             }
         }
+
         let mut column_indices: Vec<usize> = Vec::new();
 
         for (i, face) in faces(&simplex).into_iter().enumerate() {
@@ -100,7 +103,7 @@ impl SimplicialComplex {
                     .get(&face)
                     .unwrap_or(&empty);
         }
-
+        let mut option_count =0;
         for &node in &options {
             let mut super_simplex: Vec<usize> = Vec::new();
             let mut pushed = false;
@@ -124,11 +127,11 @@ impl SimplicialComplex {
                     continue;
                 }
             }
-
+            option_count+=1;
             self.add(super_simplex);
         }
         // if there is nothing above it, so it won't be added backwards.
-        if options.len() == 0 {
+        if option_count == 0 {
             // Add one to the index because of the dummy element in the matrix to allow for the addition of rows and columns.
             let index = self.simplex_indices[simplex.len() - 1].len() + 1;
             if !self.simplex_indices[simplex.len() - 1].contains_right(&simplex) {
@@ -162,7 +165,7 @@ impl SimplicialComplex {
                 .get_mut(&vec![simplex[1]])
                 .unwrap()
                 .remove(&simplex[0]));
-            assert!(self.simplices[1].remove_entry(&simplex).is_some());
+            
 
             let &simplex_row = self.simplex_indices[0].get_by_right(&vec![simplex[0]]).unwrap();
             let &simplex_2_row = self.simplex_indices[0].get_by_right(&vec![simplex[1]]).unwrap();
@@ -179,12 +182,15 @@ impl SimplicialComplex {
                 .enumerate()
                 .filter_map(|(i, &e)| if e == 1 { Some(i) } else { None })
                 .collect();
+            assert!(super_simplex_indices.len()==1);
 
             self.boundary_matrices[0] = self.boundary_matrices[0]
-                .clone().remove_column(*super_simplex_indices.iter().next().unwrap());
+                    .clone().remove_column(*super_simplex_indices.iter().next().unwrap());
             
             
         }
+
+        assert!(self.simplices[simplex.len()-1].remove_entry(&simplex).is_some());
 
 
         let &simplex_row = self.simplex_indices[simplex.len() - 1].get_by_right(&simplex).unwrap();
@@ -194,19 +200,26 @@ impl SimplicialComplex {
             .enumerate()
             .filter_map(|(i, &e)| if e == 1 { Some(i) } else { None })
             .collect();
+        
+        for &i in &super_simplex_indices {
+
+            let sub_simplex_indices: Vec<Vec<usize>> = self.boundary_matrices[simplex.len() - 1]
+                .column(i)
+                .iter()
+                .enumerate()
+                .filter_map(|(i, &e)| if e == 1 { Some(i) } else { None }).take(3).map(|j| self.simplex_indices[simplex.len()-1].get_by_left(&j).unwrap().clone())
+                .collect();
+            
+            
+            let super_simplex = combine_simplices(&sub_simplex_indices);
+            self.remove(super_simplex.clone());
+            // self.simplices[simplex.len()].remove_entry(&super_simplex);
+        }
         self.boundary_matrices[simplex.len() - 1] = self.boundary_matrices[simplex.len() - 1]
             .clone().remove_row(simplex_row)
             .remove_columns_at(&super_simplex_indices);
         assert!(self.simplex_indices[simplex.len() - 1].remove_by_right(&simplex).is_some());
         self.update_simplex_indices(simplex.len() - 1);
-        for i in super_simplex_indices {
-            let super_simplex = self.simplex_indices[simplex.len()]
-                .get_by_left(&i)
-                .unwrap()
-                .clone();
-            self.remove(super_simplex.clone());
-            self.simplices[simplex.len()].remove_entry(&super_simplex);
-        }
     }
 }
 
@@ -257,4 +270,25 @@ pub fn rank(mat: &GenericMatrix) -> usize {
         mat_rank += 1
     }
     mat_rank
+}
+
+pub fn combine_simplices(sub_simplices: &Vec<Vec<usize>>)-> Vec<usize> {
+    let mut elements: HashSet<usize> = sub_simplices[0].iter().cloned().collect();
+    elements = &elements | &sub_simplices[1].iter().cloned().collect();
+    let mut partial: HashMap<(usize, usize), bool> = HashMap::new();
+    for &element in &elements{
+        for &element_2 in &elements {
+            for sub_simplex in sub_simplices{
+                if sub_simplex.contains(&element)&&sub_simplex.contains(&element_2){
+                    partial.insert((element, element_2), sub_simplex.iter().position(|&r| r == element).unwrap()<sub_simplex.iter().position(|&r| r == element_2).unwrap());
+                }
+            }
+            
+        }
+    }
+    let mut simplex: Vec<usize> = elements.into_iter().collect();
+    simplex.sort_by(|&a, &b|if partial[&(a, b)] {Ordering::Less} else {Ordering::Greater} );
+    simplex
+
+    
 }
