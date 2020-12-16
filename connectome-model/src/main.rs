@@ -1,54 +1,48 @@
-pub mod simplex;
-use crate::simplex::{faces, SimplicialComplex};
+use connectome_model::{
+    sim::Simulation,
+    simplex::{faces, SimplicialComplex},
+};
 use petgraph::graph::{DiGraph, NodeIndex};
-use rand::{seq::IteratorRandom, thread_rng};
+use rand::{rngs::ThreadRng, seq::IteratorRandom, thread_rng, Rng};
 use std::collections::{HashMap, HashSet};
-fn main() {
-    let mut rng = rand::thread_rng();
-    let mut graph: DiGraph<u32, ()> = DiGraph::new();
-    let num_nodes = 30;
-    let num_edges = 1000;
-    for i in 0..num_nodes {
-        graph.add_node(i as u32);
-    }
-    let mut simplicial_complex = SimplicialComplex::new((0..num_nodes).collect());
-    let mut so_far: HashSet<Vec<usize>> = HashSet::new();
-    // let samples = vec![
-    //     vec![1, 2],
-    //     vec![2, 3],
-    //     vec![1, 3],
-    //     vec![3, 5],
-    //     vec![5, 7],
-    //     vec![1, 7],
-    // ];
-    for i in 0..num_edges {
-        let choices: Vec<usize> = (0..num_nodes).collect();
-        let sample: Vec<usize> = choices
-            .iter()
-            .choose_multiple(&mut rng, 2)
-            .into_iter()
-            .cloned()
-            .collect();
-        // let sample: Vec<usize> = samples[i].iter().cloned().collect();
-        if so_far.contains(&vec![sample[1], sample[0]]) || so_far.contains(&sample) {
-            continue;
-        } else {
-            so_far.insert(sample.clone());
-        }
-        simplicial_complex.update(sample.clone());
 
-        graph.add_edge(NodeIndex::new(sample[0]), NodeIndex::new(sample[1]), ());
-        let lengths: Vec<usize> = simplicial_complex
-            .simplices
-            .iter()
-            .map(|simplex| simplex.len())
-            .collect();
+const NUM_NODES: u32 = 6;
+
+fn main() {
+    let rng = rand::thread_rng();
+
+    let mut simulation = Simulation::<ThreadRng>::new(0.5, 0.3, 0.03, 5, rng);
+    let mut rng = rand::thread_rng();
+    simulation.init_uniform(1, NUM_NODES);
+    let mut simplicial_complex = SimplicialComplex::new((0..NUM_NODES.pow(3) as usize).collect());
+
+    let mut i = 0;
+    loop {
+        // println!("{}", i);
+        let step_result = simulation.step(&[rng.gen_range(0, NUM_NODES.pow(3) as usize)]);
+        for (in_node, out_node) in step_result.removed_edges {
+            simplicial_complex.remove(vec![in_node, out_node]);
+        }
+        for (in_node, out_node) in step_result.added_edges {
+            // println!("{:?} {:?}", in_node, out_node);
+            // assert!(1 == 0);
+            simplicial_complex.add(vec![in_node, out_node]);
+        }
+
+        i += 1;
 
         if i % 100 == 0 {
-            println!("{:?}", lengths);
-            let bettis = simplicial_complex.betti_numbers();
-
-            println!("{:?}", bettis);
+            let lengths: Vec<usize> = simplicial_complex
+                .simplices
+                .iter()
+                .map(|simplex| simplex.len())
+                .collect();
+            // let betti_numbers = simplicial_complex.betti_numbers();
+            let betti_numbers = vec![0];
+            println!(
+                "simplex sizes: {:?}\n\n betti numbers: {:?}\n\n",
+                lengths, betti_numbers
+            );
         }
     }
 }

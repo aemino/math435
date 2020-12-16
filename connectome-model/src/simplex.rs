@@ -12,13 +12,7 @@ pub struct SimplicialComplex {
 impl SimplicialComplex {
     pub fn new(vertices: Vec<usize>) -> Self {
         SimplicialComplex {
-            simplices: vec![
-                vertices
-                    .iter()
-                    .map(|&v| (vec![v], HashSet::new()))
-                    .collect(),
-                HashMap::new(),
-            ],
+            simplices: vec![HashMap::new()],
             simplex_indices: vec![BiHashMap::new()],
             boundary_matrices: vec![GenericMatrix::from_iterator(1, 1, vec![0u64])],
         }
@@ -52,7 +46,7 @@ impl SimplicialComplex {
         betti_numbers
     }
 
-    pub fn update(&mut self, simplex: Vec<usize>) {
+    pub fn add(&mut self, simplex: Vec<usize>) {
         if self.simplices.len() < simplex.len() + 1 {
             self.simplices.push(HashMap::new());
             self.simplex_indices.push(BiHashMap::new());
@@ -132,7 +126,7 @@ impl SimplicialComplex {
             }
             // if let Some(_) = self.simplices[simplex.len()].get(&super_simplex) {
             // } else {
-            self.update(super_simplex);
+            self.add(super_simplex);
             // }
         }
         // if there is nothing above it, so it won't be added backwards.
@@ -147,37 +141,44 @@ impl SimplicialComplex {
         }
     }
 
-    pub fn delete(&mut self, simplex: Vec<usize>) {
+    pub fn remove(&mut self, simplex: Vec<usize>) {
         if simplex.len() == 2 {
-            self.simplices[simplex.len() - 1]
+            assert!(self.simplices[0]
                 .get_mut(&vec![simplex[0]])
                 .unwrap()
-                .remove(&simplex[1]);
-            self.simplices[simplex.len() - 1]
+                .remove(&simplex[1]));
+            assert!(self.simplices[0]
                 .get_mut(&vec![simplex[1]])
                 .unwrap()
-                .remove(&simplex[0]);
+                .remove(&simplex[0]));
         }
-        let &simplex_row = self.simplex_indices[simplex.len() - 2]
-            .get_by_right(&simplex)
-            .unwrap();
-        let super_simplex_indices: Vec<usize> = self.boundary_matrices[simplex.len() - 2]
+        let mut simplex_row = 0;
+        if let Some(&simplex_ro) = self.simplex_indices[simplex.len() - 1].get_by_right(&simplex) {
+            simplex_row = simplex_ro;
+        } else {
+            println!(
+                "{:?} {:?}",
+                simplex,
+                self.simplex_indices[simplex.len() - 1].get_by_right(&vec![simplex[1], simplex[0]])
+            );
+            assert!(1 == 0);
+        }
+        let super_simplex_indices: Vec<usize> = self.boundary_matrices[simplex.len() - 1]
             .row(simplex_row)
             .iter()
             .enumerate()
             .filter_map(|(i, &e)| if e == 1 { Some(i) } else { None })
             .collect();
-        self.boundary_matrices[simplex.len() - 2] = self.boundary_matrices[simplex.len() - 2]
+        self.boundary_matrices[simplex.len() - 1] = self.boundary_matrices[simplex.len() - 1]
             .clone()
-            .remove_row(simplex_row)
             .remove_columns_at(&super_simplex_indices);
         for i in super_simplex_indices {
-            let super_simplex = self.simplex_indices[simplex.len() - 1]
+            let super_simplex = self.simplex_indices[simplex.len()]
                 .get_by_left(&i)
                 .unwrap()
                 .clone();
-            self.delete(super_simplex.clone());
-            self.simplices[simplex.len() - 1].remove_entry(&super_simplex);
+            self.remove(super_simplex.clone());
+            self.simplices[simplex.len()].remove_entry(&super_simplex);
         }
     }
 }
