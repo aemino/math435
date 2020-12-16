@@ -117,9 +117,9 @@ where
             let decay_prob = edge.myelination_prob(self.max_myelination + 1) * self.decay_rate;
 
             if self.rng.gen_bool(decay_prob) {
-                self.graph.remove_edge(id);
-
                 pending_removed_edges.push(self.graph.edge_endpoints(id).unwrap());
+
+                self.graph.remove_edge(id);
                 continue;
             }
 
