@@ -1,4 +1,4 @@
-use std::{cmp::Reverse, collections::BinaryHeap};
+use std::{cmp::Reverse, collections::{BinaryHeap, HashSet}};
 
 use nalgebra::{distance_squared, Point3};
 use petgraph::{EdgeDirection, graph::{DiGraph, NodeIndex}, visit::EdgeRef};
@@ -100,7 +100,7 @@ where
         let next_timestep = self.timestep + 1;
 
         let mut pending_removed_edges = Vec::new();
-        let mut pending_activations = activations.iter().map(|&id| NodeIndex::new(id)).collect::<Vec<_>>();
+        let mut pending_activations = activations.iter().map(|&id| NodeIndex::new(id)).collect::<HashSet<_>>();
 
         for id in self.graph.edge_indices() {
             let edge = &mut self.graph[id];
@@ -130,7 +130,7 @@ where
             edge.activation_queue.pop();
 
             let (_, target_id) = self.graph.edge_endpoints(id).unwrap();
-            pending_activations.push(target_id);
+            pending_activations.insert(target_id);
         }
 
         let mut pending_added_edges = Vec::new();
