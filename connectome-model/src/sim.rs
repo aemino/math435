@@ -64,6 +64,7 @@ pub struct Simulation<R: Rng> {
     pub decay_rate: f64,
     pub max_myelination: usize,
     pub distance_exp: i32,
+    pub refractory_period: usize,
     pub graph: StableDiGraph<NodeWeight, EdgeWeight>,
     pub rng: R,
 }
@@ -78,6 +79,7 @@ where
         decay_rate: f64,
         max_myelination: usize,
         distance_exp: i32,
+        refractory_period: usize,
         rng: R,
     ) -> Self {
         Self {
@@ -87,6 +89,7 @@ where
             decay_rate,
             max_myelination,
             distance_exp,
+            refractory_period,
             graph: StableDiGraph::new(),
             rng,
         }
@@ -209,6 +212,13 @@ where
 
         for &id in &pending_activations {
             let node = &mut self.graph[id];
+
+            if let Some(last_active) = node.last_active {
+                if self.timestep - last_active < self.refractory_period {
+                    continue;
+                }
+            }
+
             node.set_active(self.timestep);
 
             for edge_id in self
